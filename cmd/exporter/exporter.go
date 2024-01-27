@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -28,21 +26,11 @@ func Run() {
 		klog.Exitf("%s", err)
 	}
 
-	Exporter(config)
+	Exporter(*config)
 }
 
-func Exporter(conf *Config) {
-
-	ctx, cf := context.WithCancel(context.Background())
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigs
-		cf()
-	}()
-
-	go metrics(*conf)
-
+func createCollectors(ctx context.Context, conf Config) []*exporter.PrometheusCollector {
+	cltrs = []*exporter.PrometheusCollector{}
 	for _, pduConf := range conf.PduConfig {
 		baseURL, err := url.Parse(pduConf.Url())
 		if err != nil {
@@ -64,29 +52,30 @@ func Exporter(conf *Config) {
 		collector.Settings.SNMPSysName = conf.ExporterLabels["snmp_sys_name"]
 		collector.Settings.SNMPSydLocation = conf.ExporterLabels["snmp_sys_location"]
 		collector.Settings.Interval = int(conf.Interval)
-		collector.Start()
 		cltrs = append(cltrs, collector)
 	}
-
-	<-ctx.Done()
+	return cltrs
 }
 
-func metrics(c Config) {
-	if !c.Metrics {
-		return
-	}
+func Exporter(conf Config) {
+	ctx := context.Background()
+	ctrlrs := createCollectors(ctx, conf)
+	go func() {
+		r := mux.NewRouter()
+		r.Use(logMW)
+		klog.V(1).Infof("Starting Prometheus metrics server on %d", conf.Port)
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `PDU Metrics are at <a href="/metrics">/metrics<a>`)
+		})
+		r.HandleFunc("/metrics", metricsHandler)
 
-	r := mux.NewRouter()
-	r.Use(logMW)
-	klog.V(1).Infof("Starting Prometheus metrics server on %d", c.Port)
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `PDU Metrics are at <a href="/metrics">/metrics<a>`)
-	})
-	r.HandleFunc("/metrics", metricsHandler)
-
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), r); err != nil {
-		klog.Errorf("HTTP server error: %v", err)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), r); err != nil {
+			klog.Errorf("HTTP server error: %v", err)
+		}
+	}()
+	for _, c := range ctrlrs {
+		c.Start()
 	}
 }
 
