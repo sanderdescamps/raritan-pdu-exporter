@@ -132,7 +132,7 @@ func mustURL(path string) url.URL {
 	return *u
 }
 
-func (c *Client) ConnectionCheck() error {
+func (c *Client) TCPConnectionCheck() error {
 	var port int
 	if p, err := strconv.Atoi(c.BaseURL.Port()); err != nil || p == 0 {
 		if c.BaseURL.Scheme == "http" {

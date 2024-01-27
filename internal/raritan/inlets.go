@@ -21,7 +21,11 @@ type InletSettings struct {
 	Name string
 }
 
-func (c *Client) GetInletsInfo(ins []Resource) ([]InletInfo, error) {
+func (c *Client) GetInletsInfo() ([]InletInfo, error) {
+	ins, err := c.GetPDUInlets()
+	if err != nil {
+		return nil, err
+	}
 	reqs := make([]bulkRequest, len(ins)*3)
 	for i, in := range ins {
 		i *= 3

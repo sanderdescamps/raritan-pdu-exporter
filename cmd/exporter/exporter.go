@@ -57,37 +57,14 @@ func Exporter(conf *Config) {
 			BaseURL: *baseURL,
 		}
 
-		collector := &exporter.PrometheusCollector{
-			Name: pduConf.Name,
-		}
-		collector.Labels.UseConfigName = conf.ExporterLabels["use_config_name"]
-		collector.Labels.SerialNumber = conf.ExporterLabels["serial_number"]
-		collector.Labels.SNMPSysContact = conf.ExporterLabels["snmp_sys_contact"]
-		collector.Labels.SNMPSysName = conf.ExporterLabels["snmp_sys_name"]
-		collector.Labels.SNMPSydLocation = conf.ExporterLabels["snmp_sys_location"]
-
-		enableSNMP := collector.Labels.SNMPSydLocation || collector.Labels.SNMPSysContact || collector.Labels.SNMPSysName
-
-		ls, cPduInfo, cSnmpInfo, err := exporter.Run(ctx, q, conf.Interval, enableSNMP)
-		if err != nil {
-			klog.Errorf("failed to connect to %s, skipping pdu", pduConf.Name)
-		}
-
-		go func() {
-			for l := range ls {
-				collector.SetLogs(l)
-			}
-		}()
-		go func() {
-			for pduInfo := range cPduInfo {
-				collector.SetPduInfo(pduInfo)
-			}
-		}()
-		go func() {
-			for snmpInfo := range cSnmpInfo {
-				collector.SetSnmpInfo(snmpInfo)
-			}
-		}()
+		collector := exporter.NewPrometheusCollector(ctx, q, pduConf.Name, pduConf.StaticLabels)
+		collector.Settings.UseConfigName = conf.ExporterLabels["use_config_name"]
+		collector.Settings.SerialNumber = conf.ExporterLabels["serial_number"]
+		collector.Settings.SNMPSysContact = conf.ExporterLabels["snmp_sys_contact"]
+		collector.Settings.SNMPSysName = conf.ExporterLabels["snmp_sys_name"]
+		collector.Settings.SNMPSydLocation = conf.ExporterLabels["snmp_sys_location"]
+		collector.Settings.Interval = int(conf.Interval)
+		collector.Start()
 		cltrs = append(cltrs, collector)
 	}
 

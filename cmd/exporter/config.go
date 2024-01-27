@@ -35,14 +35,7 @@ type FileConfig struct {
 	Port           uint            `json:"port" yaml:"port"`
 	Interval       uint            `json:"interval" yaml:"interval"`
 	ExporterLabels map[string]bool `json:"exporter_labels" yaml:"exporter_labels"`
-	// struct {
-	// 	UseConfigName   *bool `json:"use_config_name" yaml:"use_config_name"`
-	// 	SerialNumber    *bool `json:"serial_number" yaml:"serial_number"`
-	// 	SNMPSysContact  *bool `json:"snmp_sys_contact" yaml:"snmp_sys_contact"`
-	// 	SNMPSysName     *bool `json:"snmp_sys_name" yaml:"snmp_sys_name"`
-	// 	SNMPSydLocation *bool `json:"snmp_sys_location" yaml:"snmp_sys_location"`
-	// }
-	PduConfig []PduConfig `json:"pdu_config" yaml:"pdu_config"`
+	PduConfig      []PduConfig     `json:"pdu_config" yaml:"pdu_config"`
 }
 
 type Config struct {
@@ -50,22 +43,16 @@ type Config struct {
 	Port           uint            `json:"port" yaml:"port"`
 	Interval       uint            `json:"interval" yaml:"interval"`
 	ExporterLabels map[string]bool `json:"exporter_labels" yaml:"exporter_labels"`
-	// struct {
-	// 	UseConfigName   *bool `json:"use_config_name" yaml:"use_config_name"`
-	// 	SerialNumber    *bool `json:"serial_number" yaml:"serial_number"`
-	// 	SNMPSysContact  *bool `json:"snmp_sys_contact" yaml:"snmp_sys_contact"`
-	// 	SNMPSysName     *bool `json:"snmp_sys_name" yaml:"snmp_sys_name"`
-	// 	SNMPSydLocation *bool `json:"snmp_sys_location" yaml:"snmp_sys_location"`
-	// }
-	PduConfig []PduConfig `json:"pdu_config" yaml:"pdu_config"`
+	PduConfig      []PduConfig     `json:"pdu_config" yaml:"pdu_config"`
 }
 
 type PduConfig struct {
-	Name     string `json:"name" yaml:"name"`
-	Address  string `json:"address" yaml:"address"`
-	Timeout  int    `json:"timeout" yaml:"timeout"`
-	Username string `json:"username" yaml:"username"`
-	Password string `json:"password" yaml:"password"`
+	Name         string            `json:"name" yaml:"name"`
+	Address      string            `json:"address" yaml:"address"`
+	Timeout      int               `json:"timeout" yaml:"timeout"`
+	Username     string            `json:"username" yaml:"username"`
+	Password     string            `json:"password" yaml:"password"`
+	StaticLabels map[string]string `json:"static_labels" yaml:"static_labels"`
 }
 
 func (cc *PduConfig) Url() string {

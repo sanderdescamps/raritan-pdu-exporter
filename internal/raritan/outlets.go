@@ -28,7 +28,12 @@ type OutletState struct {
 	PowerState uint
 }
 
-func (c *Client) GetOutletsInfo(os []Resource) ([]OutletInfo, error) {
+func (c *Client) GetOutletsInfo() ([]OutletInfo, error) {
+	os, err := c.GetPDUOutlets()
+	if err != nil {
+		return nil, err
+	}
+
 	reqs := make([]bulkRequest, len(os)*4)
 	for i, o := range os {
 		i *= 4
