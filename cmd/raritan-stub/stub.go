@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/goji/httpauth"
 	"github.com/gorilla/mux"
@@ -11,6 +13,13 @@ import (
 	"github.com/tanenbaum/raritan-pdu-exporter/internal/rpc"
 	"k8s.io/klog"
 )
+
+var randomGenerator *rand.Rand
+
+func init() {
+	source := rand.NewSource(time.Now().UnixNano())
+	randomGenerator = rand.New(source)
+}
 
 // Config for stub
 type Config struct {
@@ -54,7 +63,7 @@ func Execute() {
 	r.HandleFunc("/tfwopaque/{id:[0-9]+}/{sensor}", sensorHandler)
 	r.HandleFunc("/model/{type}/{id:[0-9]+}/{sensor}", sensorHandler)
 	r.HandleFunc("/snmp", snmpHandler)
-	klog.Exit(http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), logger(auth(r))))
+	klog.Exit(http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), randomDelay(logger(auth(r)))))
 }
 
 func logger(next http.Handler) http.Handler {
@@ -62,5 +71,13 @@ func logger(next http.Handler) http.Handler {
 		klog.V(2).Infof("HTTP Request: URL: %s, method: %s, remote: %s", r.URL.String(), r.Method, r.RemoteAddr)
 		next.ServeHTTP(w, r)
 		klog.V(2).Infof("HTTP Response: Headers: %v", w.Header())
+	})
+}
+
+func randomDelay(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d := time.Duration(randomGenerator.Intn(50))
+		time.Sleep(d * time.Millisecond)
+		next.ServeHTTP(w, r)
 	})
 }
