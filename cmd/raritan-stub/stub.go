@@ -70,7 +70,6 @@ func logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		klog.V(2).Infof("HTTP Request: URL: %s, method: %s, remote: %s", r.URL.String(), r.Method, r.RemoteAddr)
 		next.ServeHTTP(w, r)
-		klog.V(2).Infof("HTTP Response: Headers: %v", w.Header())
 	})
 }
 
