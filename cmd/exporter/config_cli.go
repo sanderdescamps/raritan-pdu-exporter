@@ -6,7 +6,7 @@ type CliConfig struct {
 	Timeout    int    `long:"timeout" default:"10" description:"Timeout of PDU RPC requests in seconds"`
 	Username   string `short:"u" long:"username" env:"PDU_USERNAME" description:"Username for PDU access"`
 	Password   string `short:"p" long:"password" env:"PDU_PASSWORD" description:"Password for PDU access"`
-	Metrics    bool   `long:"metrics" description:"Enable prometheus metrics endpoint"`
+	Metrics    bool   `long:"metrics" description:"Enable prometheus metrics endpoint (Deprecated)"`
 	Port       uint   `long:"port" default:"2112" description:"Prometheus metrics port"`
 	Interval   uint   `short:"i" long:"interval" default:"10" description:"Interval between data scrapes"`
 	ConfigPath string `short:"c" long:"config" value-name:"FILE" description:"path to pool config"`
