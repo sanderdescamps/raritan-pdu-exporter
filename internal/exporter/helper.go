@@ -32,3 +32,17 @@ func matchAnyFilter(a string, patternList []string) bool {
 	}
 	return false
 }
+
+func boolToFloat64(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func IfThenElse[K comparable](condition bool, a K, b K) K {
+	if condition {
+		return a
+	}
+	return b
+}

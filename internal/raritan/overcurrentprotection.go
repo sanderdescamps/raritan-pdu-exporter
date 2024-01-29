@@ -21,7 +21,12 @@ type OCPSettings struct {
 	Name string
 }
 
-func (c *Client) GetOCPInfo(ocps []Resource) ([]OCPInfo, error) {
+func (c *Client) GetOCPInfo() ([]OCPInfo, error) {
+	ocps, err := c.GetPDUOCP()
+	if err != nil {
+		return nil, err
+	}
+
 	reqs := make([]bulkRequest, len(ocps)*3)
 	for i, ocp := range ocps {
 		i *= 3

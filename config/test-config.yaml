@@ -15,18 +15,26 @@ pdu_config:
     address: "http://localhost:3001"
     username: test
     password: test
+    static_labels:
+      rack: "1"
   - name: conf_pdu02
     address: "http://localhost:3002"
     username: test
     password: test
+    static_labels:
+      rack: "1"
   - name: conf_pdu03
     address: "http://localhost:3003"
     username: test
     password: test
+    static_labels:
+      rack: "2"
   - name: conf_pdu04
     address: "http://localhost:3004"
     username: test
     password: test
+    static_labels:
+      rack: "2"
   - name: conf_pdu05
     address: "http://localhost:3005"
     username: test
