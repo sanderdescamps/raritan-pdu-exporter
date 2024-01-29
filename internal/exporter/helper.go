@@ -39,3 +39,10 @@ func boolToFloat64(b bool) float64 {
 	}
 	return 0
 }
+
+func IfThenElse[K comparable](condition bool, a K, b K) K {
+	if condition {
+		return a
+	}
+	return b
+}

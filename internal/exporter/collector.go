@@ -169,62 +169,87 @@ func (c *PrometheusCollector) variableLabels() prometheus.Labels {
 }
 
 func (c *PrometheusCollector) refreshInfo() error {
+	systemMetrics := []SensorLog{}
+	sensors := []Sensor{}
+	var pduInfo *raritan.PDUInfo
+	var snmpInfo *raritan.SNMPInfo
 
-	failed := false
-	status := map[string]bool{
-		METRIC_TCP_CONNECTIVITY: true,
-		METRIC_PDU_INFO:         true,
-		METRIC_SNMP_INFO:        true,
-		METRIC_INLET_INFO:       true,
-		METRIC_OUTLET_INFO:      true,
-		METRIC_OCP_INFO:         true,
-	}
+	defer func() {
+		c.infoLock.Lock()
+		defer c.infoLock.Unlock()
+		c.pduInfo = pduInfo
+		c.snmpInfo = snmpInfo
+
+		c.systemMetricsLock.Lock()
+		defer c.systemMetricsLock.Unlock()
+		c.systemMetrics = systemMetrics
+
+		c.sensorsLock.Lock()
+		defer c.sensorsLock.Unlock()
+		if len(sensors) > 0 {
+			c.sensors = sensors
+		} else {
+			c.sensors = nil
+		}
+	}()
+
 	conErr := c.client.TCPConnectionCheck()
+	systemMetrics = append(systemMetrics, SensorLog{ //Backwards compatibillity
+		Sensor: "pdu_active",
+		Type:   "status",
+		Time:   time.Now(),
+		Value:  IfThenElse(conErr == nil, 1.0, 0.0),
+	})
+	systemMetrics = append(systemMetrics, SensorLog{
+		Sensor: "tcp connection",
+		Type:   "exporter_status",
+		Time:   time.Now(),
+		Value:  IfThenElse(conErr == nil, 1.0, 0.0),
+	})
 	if conErr != nil {
-		klog.Errorf("failed to connect to %s[%s]", c.Name, c.client.BaseURL.String())
-		status[METRIC_TCP_CONNECTIVITY] = false
-		failed = true
+		return fmt.Errorf("failed to connect to %s[%s]", c.Name, c.client.BaseURL.String())
 	}
 
 	//PDU Info
-	if failed {
-		status[METRIC_PDU_INFO] = false
-	} else if pduInfo, err := c.client.GetPDUInfo(); err == nil {
-		func() {
-			c.infoLock.Lock()
-			defer c.infoLock.Unlock()
-			c.pduInfo = pduInfo
-		}()
-	} else {
-		status[METRIC_PDU_INFO] = false
-		failed = true
+	var err error
+	pduInfo, err = c.client.GetPDUInfo()
+	systemMetrics = append(systemMetrics, SensorLog{
+		Sensor: "pdu info",
+		Type:   "exporter_status",
+		Label:  "pdu info",
+		Time:   time.Now(),
+		Value:  IfThenElse(err == nil, 1.0, 0.0),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get pdu info for %s[%s]", c.Name, c.client.BaseURL.String())
 	}
 
 	//PDU SNMP Info
-	var snmpInfo *raritan.SNMPInfo
 	if c.Settings.SNMPSydLocation || c.Settings.SNMPSysContact || c.Settings.SNMPSysName {
-		if failed {
-			status[METRIC_SNMP_INFO] = false
-		} else {
-			var err error
-			snmpInfo, err = c.client.GetSNMPInfo()
-			if err != nil {
-				status[METRIC_SNMP_INFO] = false
-				failed = true
-			}
+		snmpInfo, err = c.client.GetSNMPInfo()
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "snmp info",
+			Type:   "exporter_status",
+			Label:  "snmp info",
+			Time:   time.Now(),
+			Value:  IfThenElse(err == nil, 1.0, 0.0),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to get snmp info for %s[%s]", c.Name, c.client.BaseURL.String())
 		}
 	}
-	func() {
-		c.infoLock.Lock()
-		defer c.infoLock.Unlock()
-		c.snmpInfo = snmpInfo
-	}()
 
 	// Inlets
-	sensors := []Sensor{}
-	if failed {
-		status[METRIC_INLET_INFO] = false
-	} else if iis, err := c.client.GetInletsInfo(); err == nil {
+	iis, err := c.client.GetInletsInfo()
+	systemMetrics = append(systemMetrics, SensorLog{
+		Sensor: "inlet info",
+		Type:   "exporter_status",
+		Time:   time.Now(),
+		Value:  IfThenElse(err == nil, 1.0, 0.0),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get inlet info for %s[%s]", c.Name, c.client.BaseURL.String())
+	} else {
 		for _, i := range iis {
 			for k, v := range i.Sensors {
 				sensors = append(sensors, Sensor{
@@ -235,15 +260,19 @@ func (c *PrometheusCollector) refreshInfo() error {
 				})
 			}
 		}
-	} else {
-		status[METRIC_INLET_INFO] = false
-		failed = true
 	}
 
 	// Outlets
-	if failed {
-		status[METRIC_OUTLET_INFO] = false
-	} else if ois, err := c.client.GetOutletsInfo(); err == nil {
+	ois, err := c.client.GetOutletsInfo()
+	systemMetrics = append(systemMetrics, SensorLog{
+		Sensor: "outlet info",
+		Type:   "exporter_status",
+		Time:   time.Now(),
+		Value:  IfThenElse(err == nil, 1.0, 0.0),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get outlet info for %s[%s]", c.Name, c.client.BaseURL.String())
+	} else {
 		for _, o := range ois {
 			for k, v := range o.Sensors {
 				sensors = append(sensors, Sensor{
@@ -254,15 +283,19 @@ func (c *PrometheusCollector) refreshInfo() error {
 				})
 			}
 		}
-	} else {
-		status[METRIC_OUTLET_INFO] = false
-		failed = true
 	}
 
 	// OCP
-	if failed {
-		status[METRIC_OCP_INFO] = false
-	} else if ocp, err := c.client.GetOCPInfo(); err == nil {
+	ocp, err := c.client.GetOCPInfo()
+	systemMetrics = append(systemMetrics, SensorLog{
+		Sensor: "ocp info",
+		Type:   "exporter_status",
+		Time:   time.Now(),
+		Value:  IfThenElse(err == nil, 1.0, 0.0),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get OCP info for %s[%s]", c.Name, c.client.BaseURL.String())
+	} else {
 		for _, o := range ocp {
 			for k, v := range o.Sensors {
 				sensors = append(sensors, Sensor{
@@ -273,39 +306,8 @@ func (c *PrometheusCollector) refreshInfo() error {
 				})
 			}
 		}
-	} else {
-		status[METRIC_OCP_INFO] = false
-		failed = true
 	}
 
-	systemMetrics := []SensorLog{}
-	for sensor, v := range status {
-		systemMetrics = append(systemMetrics, SensorLog{
-			Sensor: sensor,
-			Type:   "status",
-			Time:   time.Now(),
-			Value:  boolToFloat64(v),
-		})
-	}
-
-	func() {
-		c.systemMetricsLock.Lock()
-		defer c.systemMetricsLock.Unlock()
-		c.systemMetrics = systemMetrics
-	}()
-	func() {
-		c.sensorsLock.Lock()
-		defer c.sensorsLock.Unlock()
-		if len(sensors) > 0 {
-			c.sensors = sensors
-		} else {
-			c.sensors = nil
-		}
-	}()
-
-	if failed {
-		return fmt.Errorf("refresh failed")
-	}
 	klog.Infof("%d sensors found for %s\n", len(sensors), c.DisplayName())
 
 	return nil
