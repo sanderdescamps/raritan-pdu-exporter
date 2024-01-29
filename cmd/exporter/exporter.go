@@ -61,22 +61,24 @@ func Exporter(conf Config) {
 	ctx := context.Background()
 	ctrlrs := createCollectors(ctx, conf)
 	go func() {
-		r := mux.NewRouter()
-		r.Use(logMW)
-		klog.V(1).Infof("Starting Prometheus metrics server on %d", conf.Port)
-		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `PDU Metrics are at <a href="/metrics">/metrics<a>`)
-		})
-		r.HandleFunc("/metrics", metricsHandler)
-
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), r); err != nil {
-			klog.Errorf("HTTP server error: %v", err)
+		for _, c := range ctrlrs {
+			c.Start()
 		}
 	}()
-	for _, c := range ctrlrs {
-		c.Start()
+
+	r := mux.NewRouter()
+	r.Use(logMW)
+	klog.V(1).Infof("Starting Prometheus metrics server on %d", conf.Port)
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `PDU Metrics are at <a href="/metrics">/metrics<a>`)
+	})
+	r.HandleFunc("/metrics", metricsHandler)
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), r); err != nil {
+		klog.Errorf("HTTP server error: %v", err)
 	}
+
 }
 
 func metricsHandler(w http.ResponseWriter, r *http.Request) {
