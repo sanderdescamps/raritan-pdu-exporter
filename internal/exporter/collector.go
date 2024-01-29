@@ -96,35 +96,50 @@ func NewPrometheusCollector(ctx context.Context, client raritan.Client, name str
 func (c *PrometheusCollector) Start() error {
 	c.tickerRefresh = time.NewTicker(time.Duration(c.Settings.Interval*10) * time.Second)
 	c.tickerPoll = time.NewTicker(time.Duration(c.Settings.Interval) * time.Second)
-	c.refreshInfo()
-	go func() {
-		for {
-			select {
-			case <-c.ctx.Done():
-				return
-			case <-c.tickerRefresh.C:
-				c.refreshInfo()
-			}
-		}
-	}()
+	failed := make(chan bool, 1)
+	restore := make(chan bool, 1)
+	failMode := false
 
-	c.pollMetrics()
+	err := c.refreshInfo()
+	if err != nil {
+		failed <- true
+	} else {
+		c.pollMetrics()
+	}
+
 	go func() {
 		for {
 			select {
 			case <-c.ctx.Done():
 				return
+			case <-failed:
+				klog.Errorf("collector entered failmode for %s\n", c.DisplayName())
+				c.tickerRefresh.Reset(time.Duration(c.Settings.Interval) * time.Second)
+				c.tickerPoll.Stop()
+				failMode = true
+			case <-restore:
+				klog.Errorf("collector exit failmode for %s\n", c.DisplayName())
+				c.tickerRefresh.Reset(time.Duration(c.Settings.Interval*10) * time.Second)
+				c.tickerPoll.Reset(time.Duration(c.Settings.Interval) * time.Second)
+				failMode = false
+			case <-c.tickerRefresh.C:
+				err := c.refreshInfo()
+				if err == nil {
+					if failMode {
+						restore <- true
+					}
+				} else if !failMode {
+					failed <- true
+				}
 			case <-c.tickerPoll.C:
 				err := c.pollMetrics()
 				if err != nil {
 					klog.Errorf("%s", err)
-					c.tickerRefresh.Reset(time.Duration(c.Settings.Interval*10) * time.Second)
-					c.refreshInfo()
+					failed <- true
 				}
 			}
 		}
 	}()
-
 	return nil
 }
 
@@ -153,7 +168,7 @@ func (c *PrometheusCollector) variableLabels() prometheus.Labels {
 	return vLabels
 }
 
-func (c *PrometheusCollector) refreshInfo() {
+func (c *PrometheusCollector) refreshInfo() error {
 
 	failed := false
 	status := map[string]bool{
@@ -166,7 +181,7 @@ func (c *PrometheusCollector) refreshInfo() {
 	}
 	conErr := c.client.TCPConnectionCheck()
 	if conErr != nil {
-		klog.Errorf("failed to connect to %s(%s)", c.Name, c.client.BaseURL.String())
+		klog.Errorf("failed to connect to %s[%s]", c.Name, c.client.BaseURL.String())
 		status[METRIC_TCP_CONNECTIVITY] = false
 		failed = true
 	}
@@ -279,7 +294,6 @@ func (c *PrometheusCollector) refreshInfo() {
 		c.systemMetrics = systemMetrics
 	}()
 	func() {
-		klog.Infof("%d sensors found for %s\n", len(sensors), c.Name)
 		c.sensorsLock.Lock()
 		defer c.sensorsLock.Unlock()
 		if len(sensors) > 0 {
@@ -288,6 +302,13 @@ func (c *PrometheusCollector) refreshInfo() {
 			c.sensors = nil
 		}
 	}()
+
+	if failed {
+		return fmt.Errorf("refresh failed")
+	}
+	klog.Infof("%d sensors found for %s\n", len(sensors), c.DisplayName())
+
+	return nil
 }
 
 func (c *PrometheusCollector) pollMetrics() error {
@@ -321,7 +342,7 @@ func (c *PrometheusCollector) pollMetrics() error {
 	}
 
 	func() {
-		klog.Infof("collect metrics for %s \n", c.Name)
+		klog.Infof("poll all sensors for %s\n", c.DisplayName())
 		c.metricsLock.Lock()
 		defer c.metricsLock.Unlock()
 		c.metrics = logs
@@ -366,4 +387,12 @@ func (c *PrometheusCollector) Collect(metric chan<- prometheus.Metric) {
 
 func (c *PrometheusCollector) Match(patterns []string) bool {
 	return matchAnyFilter(c.Name, patterns)
+}
+
+func (c *PrometheusCollector) DisplayName() string {
+	if c.Name != "" {
+		return c.Name
+	} else {
+		return c.client.BaseURL.Host
+	}
 }
