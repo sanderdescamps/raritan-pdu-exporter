@@ -57,19 +57,14 @@ type PrometheusCollector struct {
 	StaticLabels prometheus.Labels
 	pduInfo      *raritan.PDUInfo
 	snmpInfo     *raritan.SNMPInfo
-	infoLock     sync.Mutex
 
 	systemMetrics     []SensorLog
 	systemMetricsLock sync.Mutex
-	// VariableLabels     prometheus.Labels
-	// VariableLabelsLock sync.Mutex
-	sensors     []Sensor
-	sensorsLock sync.Mutex
-	metrics     []SensorLog
-	metricsLock sync.Mutex
+	sensors           []Sensor
+	metrics           []SensorLog
+	metricsLock       sync.Mutex
 
-	tickerRefresh *time.Ticker
-	tickerPoll    *time.Ticker
+	ticker *time.Ticker
 }
 
 func NewPrometheusCollector(ctx context.Context, client raritan.Client, name string, staticLabels map[string]string) *PrometheusCollector {
@@ -86,56 +81,40 @@ func NewPrometheusCollector(ctx context.Context, client raritan.Client, name str
 			Interval:        30,
 		},
 		metricsLock:       sync.Mutex{},
-		infoLock:          sync.Mutex{},
 		systemMetricsLock: sync.Mutex{},
-		sensorsLock:       sync.Mutex{},
 		StaticLabels:      staticLabels,
 	}
 }
 
 func (c *PrometheusCollector) Start() error {
-	c.tickerRefresh = time.NewTicker(time.Duration(c.Settings.Interval*10) * time.Second)
-	c.tickerPoll = time.NewTicker(time.Duration(c.Settings.Interval) * time.Second)
-	failed := make(chan bool, 1)
-	restore := make(chan bool, 1)
-	failMode := false
-
-	err := c.refreshInfo()
-	if err != nil {
-		failed <- true
-	} else {
-		c.pollMetrics()
-	}
+	c.ticker = time.NewTicker(time.Duration(c.Settings.Interval) * time.Second)
+	counter := 0
+	trigger := make(chan bool, 1)
+	trigger <- true
 
 	go func() {
 		for {
 			select {
 			case <-c.ctx.Done():
 				return
-			case <-failed:
-				klog.Errorf("collector entered failmode for %s\n", c.DisplayName())
-				c.tickerRefresh.Reset(time.Duration(c.Settings.Interval) * time.Second)
-				c.tickerPoll.Stop()
-				failMode = true
-			case <-restore:
-				klog.Errorf("collector exit failmode for %s\n", c.DisplayName())
-				c.tickerRefresh.Reset(time.Duration(c.Settings.Interval*10) * time.Second)
-				c.tickerPoll.Reset(time.Duration(c.Settings.Interval) * time.Second)
-				failMode = false
-			case <-c.tickerRefresh.C:
-				err := c.refreshInfo()
-				if err == nil {
-					if failMode {
-						restore <- true
+			case <-c.ticker.C:
+				trigger <- true
+			case <-trigger:
+				if counter%10 == 0 {
+					err := c.refreshInfo()
+					if err != nil {
+						klog.Errorf("%s", err)
+						counter = 0
 					}
-				} else if !failMode {
-					failed <- true
 				}
-			case <-c.tickerPoll.C:
-				err := c.pollMetrics()
-				if err != nil {
-					klog.Errorf("%s", err)
-					failed <- true
+				if c.sensors != nil {
+					err := c.pollMetrics()
+					if err != nil {
+						klog.Errorf("%s", err)
+						counter = 0
+					} else {
+						counter = (counter + 1) % 10
+					}
 				}
 			}
 		}
@@ -173,19 +152,67 @@ func (c *PrometheusCollector) refreshInfo() error {
 	sensors := []Sensor{}
 	var pduInfo *raritan.PDUInfo
 	var snmpInfo *raritan.SNMPInfo
+	successTcpConnect := false
+	successPduInfo := false
+	successSnmpInfo := false
+	successInletInfo := false
+	successOutletInfo := false
+	successOcpInfo := false
 
 	defer func() {
-		c.infoLock.Lock()
-		defer c.infoLock.Unlock()
 		c.pduInfo = pduInfo
 		c.snmpInfo = snmpInfo
+
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "tcp connection",
+			Type:   "exporter_status",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successTcpConnect),
+		})
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "pdu info",
+			Type:   "exporter_status",
+			Label:  "pdu info",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successPduInfo),
+		})
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "snmp info",
+			Type:   "exporter_status",
+			Label:  "snmp info",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successSnmpInfo),
+		})
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "inlet info",
+			Type:   "exporter_status",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successInletInfo),
+		})
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "outlet info",
+			Type:   "exporter_status",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successOutletInfo),
+		})
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "ocp info",
+			Type:   "exporter_status",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successOcpInfo),
+		})
+
+		systemMetrics = append(systemMetrics, SensorLog{
+			Sensor: "pdu_active",
+			Type:   "status",
+			Time:   time.Now(),
+			Value:  boolToFloat64(successTcpConnect && successPduInfo && successInletInfo && successOutletInfo && successOcpInfo),
+		})
 
 		c.systemMetricsLock.Lock()
 		defer c.systemMetricsLock.Unlock()
 		c.systemMetrics = systemMetrics
 
-		c.sensorsLock.Lock()
-		defer c.sensorsLock.Unlock()
 		if len(sensors) > 0 {
 			c.sensors = sensors
 		} else {
@@ -194,62 +221,37 @@ func (c *PrometheusCollector) refreshInfo() error {
 	}()
 
 	conErr := c.client.TCPConnectionCheck()
-	systemMetrics = append(systemMetrics, SensorLog{ //Backwards compatibillity
-		Sensor: "pdu_active",
-		Type:   "status",
-		Time:   time.Now(),
-		Value:  IfThenElse(conErr == nil, 1.0, 0.0),
-	})
-	systemMetrics = append(systemMetrics, SensorLog{
-		Sensor: "tcp connection",
-		Type:   "exporter_status",
-		Time:   time.Now(),
-		Value:  IfThenElse(conErr == nil, 1.0, 0.0),
-	})
 	if conErr != nil {
-		return fmt.Errorf("failed to connect to %s[%s]", c.Name, c.client.BaseURL.String())
+		return fmt.Errorf("%s: failed to connect: %s", c.DisplayName(), conErr.Error())
+	} else {
+		successTcpConnect = true
 	}
 
 	//PDU Info
 	var err error
 	pduInfo, err = c.client.GetPDUInfo()
-	systemMetrics = append(systemMetrics, SensorLog{
-		Sensor: "pdu info",
-		Type:   "exporter_status",
-		Label:  "pdu info",
-		Time:   time.Now(),
-		Value:  IfThenElse(err == nil, 1.0, 0.0),
-	})
 	if err != nil {
-		return fmt.Errorf("failed to get pdu info for %s[%s]", c.Name, c.client.BaseURL.String())
+		return fmt.Errorf("%s: failed to get pdu info: %s", c.DisplayName(), err.Error())
+	} else {
+		successPduInfo = true
 	}
 
 	//PDU SNMP Info
 	if c.Settings.SNMPSydLocation || c.Settings.SNMPSysContact || c.Settings.SNMPSysName {
 		snmpInfo, err = c.client.GetSNMPInfo()
-		systemMetrics = append(systemMetrics, SensorLog{
-			Sensor: "snmp info",
-			Type:   "exporter_status",
-			Label:  "snmp info",
-			Time:   time.Now(),
-			Value:  IfThenElse(err == nil, 1.0, 0.0),
-		})
 		if err != nil {
-			return fmt.Errorf("failed to get snmp info for %s[%s]", c.Name, c.client.BaseURL.String())
+			return fmt.Errorf("%s: failed to get snmp info: %s", c.DisplayName(), err.Error())
+		} else {
+			successSnmpInfo = true
 		}
 	}
 
 	// Inlets
 	iis, err := c.client.GetInletsInfo()
-	systemMetrics = append(systemMetrics, SensorLog{
-		Sensor: "inlet info",
-		Type:   "exporter_status",
-		Time:   time.Now(),
-		Value:  IfThenElse(err == nil, 1.0, 0.0),
-	})
 	if err != nil {
-		return fmt.Errorf("failed to get inlet info for %s[%s]", c.Name, c.client.BaseURL.String())
+		return fmt.Errorf("%s: failed to get inlet info: %s", c.DisplayName(), err.Error())
 	} else {
+		successInletInfo = true
 		for _, i := range iis {
 			for k, v := range i.Sensors {
 				sensors = append(sensors, Sensor{
@@ -264,15 +266,10 @@ func (c *PrometheusCollector) refreshInfo() error {
 
 	// Outlets
 	ois, err := c.client.GetOutletsInfo()
-	systemMetrics = append(systemMetrics, SensorLog{
-		Sensor: "outlet info",
-		Type:   "exporter_status",
-		Time:   time.Now(),
-		Value:  IfThenElse(err == nil, 1.0, 0.0),
-	})
 	if err != nil {
-		return fmt.Errorf("failed to get outlet info for %s[%s]", c.Name, c.client.BaseURL.String())
+		return fmt.Errorf("%s: failed to get outlet info: %s", c.DisplayName(), err.Error())
 	} else {
+		successOutletInfo = true
 		for _, o := range ois {
 			for k, v := range o.Sensors {
 				sensors = append(sensors, Sensor{
@@ -287,15 +284,10 @@ func (c *PrometheusCollector) refreshInfo() error {
 
 	// OCP
 	ocp, err := c.client.GetOCPInfo()
-	systemMetrics = append(systemMetrics, SensorLog{
-		Sensor: "ocp info",
-		Type:   "exporter_status",
-		Time:   time.Now(),
-		Value:  IfThenElse(err == nil, 1.0, 0.0),
-	})
 	if err != nil {
-		return fmt.Errorf("failed to get OCP info for %s[%s]", c.Name, c.client.BaseURL.String())
+		return fmt.Errorf("%s: failed to get OCP info: %s", c.DisplayName(), err.Error())
 	} else {
+		successOcpInfo = true
 		for _, o := range ocp {
 			for k, v := range o.Sensors {
 				sensors = append(sensors, Sensor{
@@ -308,15 +300,26 @@ func (c *PrometheusCollector) refreshInfo() error {
 		}
 	}
 
-	klog.Infof("%d sensors found for %s\n", len(sensors), c.DisplayName())
+	klog.Infof("%s: successfully refreshed sensors (%d)\n", c.DisplayName(), len(sensors))
 
 	return nil
 }
 
 func (c *PrometheusCollector) pollMetrics() error {
+	logs := []SensorLog{}
+	defer func() {
+		c.metricsLock.Lock()
+		defer c.metricsLock.Unlock()
+		if len(logs) > 0 {
+			c.metrics = logs
+		} else {
+			c.metrics = nil
+		}
+	}()
+
 	cSensor := c.sensors
-	if cSensor == nil {
-		return fmt.Errorf("no sensors available for %s", c.Name)
+	if cSensor == nil || len(cSensor) < 1 {
+		return fmt.Errorf("%s: no sensors available", c.DisplayName())
 	}
 	reources := make([]raritan.Resource, len(cSensor))
 	for i, sensor := range cSensor {
@@ -324,12 +327,12 @@ func (c *PrometheusCollector) pollMetrics() error {
 	}
 	sensorReadings, err := c.client.GetSensorReadings(reources)
 	if err != nil {
-		return fmt.Errorf("error getting sensor data: %w", err)
+		return fmt.Errorf("%s: error getting sensor data %w", c.DisplayName(), err)
 	}
-	logs := []SensorLog{}
+
 	for i, r := range sensorReadings {
 		if !r.Available {
-			klog.V(4).Infof("sensor %s not available", cSensor[i].Resource.RID)
+			klog.Infof("%s: sensor %s not available", c.DisplayName(), cSensor[i].Resource.RID)
 			continue
 		}
 		newLog := SensorLog{
@@ -343,12 +346,6 @@ func (c *PrometheusCollector) pollMetrics() error {
 		logs = append(logs, newLog)
 	}
 
-	func() {
-		klog.Infof("poll all sensors for %s\n", c.DisplayName())
-		c.metricsLock.Lock()
-		defer c.metricsLock.Unlock()
-		c.metrics = logs
-	}()
 	return nil
 }
 
@@ -393,7 +390,7 @@ func (c *PrometheusCollector) Match(patterns []string) bool {
 
 func (c *PrometheusCollector) DisplayName() string {
 	if c.Name != "" {
-		return c.Name
+		return fmt.Sprintf("%s[%s]", c.Name, c.client.BaseURL.Host)
 	} else {
 		return c.client.BaseURL.Host
 	}
