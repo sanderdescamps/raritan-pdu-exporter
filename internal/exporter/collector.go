@@ -253,9 +253,13 @@ func (c *PrometheusCollector) refreshInfo() error {
 	} else {
 		successInletInfo = true
 		for _, i := range iis {
+			label := i.Label
+			if i.Name != "" {
+				label = i.Name
+			}
 			for k, v := range i.Sensors {
 				sensors = append(sensors, Sensor{
-					Label:    i.Label,
+					Label:    label,
 					Type:     "inlet",
 					Sensor:   k,
 					Resource: v,
@@ -272,8 +276,12 @@ func (c *PrometheusCollector) refreshInfo() error {
 		successOutletInfo = true
 		for _, o := range ois {
 			for k, v := range o.Sensors {
+				label := o.Label
+				if o.Name != "" {
+					label = o.Name
+				}
 				sensors = append(sensors, Sensor{
-					Label:    o.Label,
+					Label:    label,
 					Type:     "outlet",
 					Sensor:   k,
 					Resource: v,
@@ -335,6 +343,7 @@ func (c *PrometheusCollector) pollMetrics() error {
 			klog.Infof("%s: sensor %s not available", c.DisplayName(), cSensor[i].Resource.RID)
 			continue
 		}
+
 		newLog := SensorLog{
 			Type:   cSensor[i].Type,
 			Label:  cSensor[i].Label,
