@@ -35,7 +35,7 @@ jobs:
           PASSWORD: test
           INTERVAL: 5
       - name: Gather logs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: logs-single-pdu
           path: |
@@ -99,7 +99,7 @@ jobs:
           PASSWORD: test
           INTERVAL: 5
       - name: Gather logs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: logs-multi-pdu
           path: |
