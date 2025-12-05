@@ -53,7 +53,7 @@ func (c *Client) GetSensorReadings(sens []Resource) ([]Reading, error) {
 
 // sensors have different reading methods based on type
 func sensorReadingMethod(res Resource) string {
-	if strings.Contains(res.Type, "NumericSensor") {
+	if strings.Contains(res.Type, "NumericSensor") || strings.Contains(res.Type, "pdumodel.VoltageMonitoringSensor") {
 		return "getReading"
 	} else if strings.Contains(res.Type, "StateSensor") || strings.Contains(res.Type, "OverCurrentProtectorTripSensor") {
 		return "getState"
